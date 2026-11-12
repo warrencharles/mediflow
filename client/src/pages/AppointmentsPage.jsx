@@ -159,6 +159,15 @@ export default function AppointmentsPage() {
     }
   };
 
+  const sendSmsReminder = async (a) => {
+    try {
+      await api(`/appointments/${a.id}/send-sms`, { method: 'POST' });
+      toast(`SMS reminder sent to ${a.patient.firstName} (${a.patient.phone})`);
+    } catch (e2) {
+      toast(e2.message, 'error');
+    }
+  };
+
   const deleteAppointment = async (a) => {
     const ok = await confirm({
       title: `Delete Appointment for ${a.patient.firstName} ${a.patient.lastName}?`,
@@ -298,6 +307,13 @@ export default function AppointmentsPage() {
                         label: 'Confirm Booking',
                         tone: 'teal',
                         onClick: () => changeStatus(a, 'CONFIRMED'),
+                      },
+                      a.patient?.phone &&
+                      ['SCHEDULED', 'CONFIRMED'].includes(a.status) &&
+                      can('appointments.write') && {
+                        label: 'Send SMS Reminder',
+                        tone: 'teal',
+                        onClick: () => sendSmsReminder(a),
                       },
                       ['SCHEDULED', 'CONFIRMED'].includes(a.status) &&
                       can('appointments.write') && {

@@ -128,7 +128,27 @@ r.get(
         take: 20,
         include: { medicine: { select: { id: true, name: true, unit: true } } },
       });
+      const [supplierCount, dispensationsToday, pendingPrescriptionsList] = await Promise.all([
+        prisma.supplier.count(),
+        prisma.dispensation.count({ where: { dispensedAt: { gte: start, lt: end } } }),
+        hasPerm(req, 'prescriptions.view')
+          ? prisma.prescription.findMany({
+              where: { status: { in: ['PENDING', 'PARTIALLY_DISPENSED'] } },
+              take: 6,
+              orderBy: { createdAt: 'asc' },
+              include: {
+                patient: { select: { id: true, firstName: true, lastName: true, patientNumber: true } },
+                doctor: { select: { fullName: true } },
+                items: { include: { medicine: { select: { name: true, unit: true } } } },
+              },
+            })
+          : [],
+      ]);
       out.pharmacy = {
+        totalMedicines: meds.length,
+        supplierCount,
+        dispensationsToday,
+        pendingPrescriptionsList,
         lowStockCount: low.length,
         lowStock: low.slice(0, 10),
         expiringCount: expiring.filter((b) => b.expiryDate >= t0).length,

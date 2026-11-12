@@ -94,7 +94,12 @@ r.get(
     const id = idParam(req.params.id);
     const c = await prisma.consultation.findUnique({ where: { id }, include: fullInclude });
     if (!c) throw notFound('Consultation not found');
-    await audit(req, 'CONSULTATION_VIEWED', 'Consultation', id);
+    await audit(req, 'MEDICAL_RECORD_ACCESSED', 'Consultation', id, {
+      patientId: c.patientId,
+      patientNumber: c.patient?.patientNumber,
+      patientName: c.patient ? `${c.patient.firstName} ${c.patient.lastName}` : null,
+      doctorName: c.doctor?.fullName,
+    });
     res.json(c);
   }),
 );

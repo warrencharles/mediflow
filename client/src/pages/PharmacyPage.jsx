@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Pill, PackagePlus, AlertTriangle, Edit3, Sliders, Truck, Search, Layers, RotateCcw, Trash2 } from 'lucide-react';
+import { Pill, PackagePlus, AlertTriangle, Edit3, Sliders, Truck, Search, Layers, RotateCcw, Trash2, ChevronDown, ChevronUp, Boxes } from 'lucide-react';
 import { api, fmtTSh, fmtDate, fmtDateTime } from '../lib/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useUI, Modal, ActionMenu } from '../context/UIContext.jsx';
@@ -38,6 +38,7 @@ export default function PharmacyPage() {
   const [alerts, setAlerts] = useState({ lowStock: [], expired: [], expiringSoon: [] });
   const [dispensations, setDispensations] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [expandedSupplier, setExpandedSupplier] = useState(null);
 
   const [showMedModal, setShowMedModal] = useState(false);
   const [editingMed, setEditingMed] = useState(null);
@@ -97,7 +98,11 @@ export default function PharmacyPage() {
 
   useEffect(() => {
     const t = params.get('tab');
-    if (t) setTab(t);
+    if (t) {
+      if (t === 'stock') setTabState('inventory');
+      else if (t === 'dispensations') setTabState('history');
+      else setTabState(t);
+    }
   }, [params]);
 
   useEffect(() => {
@@ -784,52 +789,193 @@ export default function PharmacyPage() {
       {/* Suppliers */}
       {tab === 'suppliers' && (
         <div className="space-y-4 text-xs">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Approved Pharmaceutical Suppliers</h2>
+              <p className="text-slate-500 text-xs">
+                Manage registered vendors and inspect itemized stock batches delivered by each supplier
+              </p>
+            </div>
             <button
               onClick={() => {
                 setEditingSupplier(null);
                 setSupplierForm({ name: '', phone: '', email: '', address: '' });
                 setShowSupplierModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 text-white font-semibold"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 text-white font-semibold shadow-xs hover:bg-teal-700"
             >
-              <Truck className="w-4 h-4" /> Add Supplier
+              <Truck className="w-4 h-4" /> Add New Supplier
             </button>
           </div>
-          <div className="bg-white rounded-xl border divide-y">
-            {suppliers.map((s) => (
-              <div key={s.id} className="p-4 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">{s.name}</div>
-                  <div className="text-slate-500">
-                    {s.phone || '—'} · {s.email || '—'} · {s.address || '—'}
+
+          <div className="space-y-4">
+            {suppliers.map((s) => {
+              const batches = s.batches || [];
+              const totalUnitsRecv = batches.reduce((acc, b) => acc + (b.quantityReceived || 0), 0);
+              const totalUnitsRem = batches.reduce((acc, b) => acc + (b.quantityRemaining || 0), 0);
+              const totalSpend = batches.reduce((acc, b) => acc + (b.purchasePrice * b.quantityReceived || 0), 0);
+              const isExpanded = expandedSupplier === s.id;
+
+              return (
+                <div key={s.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                  {/* Supplier Header */}
+                  <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-50/50 border-b border-slate-100">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">{s.name}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-teal-50 border border-teal-200 text-teal-700 font-bold text-[10px]">
+                          {batches.length} Batch{batches.length === 1 ? '' : 'es'} Supplied
+                        </span>
+                      </div>
+                      <div className="text-slate-500 mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                        {s.phone && <span>Tel: <b>{s.phone}</b></span>}
+                        {s.email && <span>Email: <b>{s.email}</b></span>}
+                        {s.address && <span>Address: <b>{s.address}</b></span>}
+                      </div>
+                    </div>
+
+                    {/* Financial & Stock Totals */}
+                    <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+                      <div className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-right">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Total Delivered</div>
+                        <div className="font-bold text-slate-800">{totalUnitsRecv.toLocaleString()} units</div>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-right">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Available Stock</div>
+                        <div className="font-bold text-teal-700">{totalUnitsRem.toLocaleString()} units</div>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-right">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Total Procurement</div>
+                        <div className="font-bold text-slate-900">{fmtTSh(totalSpend)}</div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStockForm((f) => ({
+                              ...f,
+                              supplierId: s.id,
+                              batchNumber: `BAT-${Date.now().toString().slice(-4)}`,
+                              reference: `PO-${s.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()}`,
+                            }));
+                            setShowStockModal(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs"
+                          title="Receive new batch from this supplier"
+                        >
+                          <PackagePlus className="w-3.5 h-3.5" /> + Receive Stock
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSupplier(isExpanded ? null : s.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 font-semibold text-slate-700 text-xs"
+                        >
+                          <Boxes className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{isExpanded ? 'Hide Stock' : 'View Stock'}</span>
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingSupplier(s);
+                            setSupplierForm({
+                              name: s.name,
+                              phone: s.phone || '',
+                              email: s.email || '',
+                              address: s.address || '',
+                            });
+                            setShowSupplierModal(true);
+                          }}
+                          className="px-2.5 py-2 rounded-lg border hover:bg-slate-100 font-semibold text-slate-700 text-xs"
+                          title="Edit supplier contact info"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteSupplier(s)}
+                          className="px-2.5 py-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 font-semibold text-xs"
+                          title="Delete supplier"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Itemized Stock Batches Brought by this Supplier */}
+                  {isExpanded && (
+                    <div className="p-4 border-t border-slate-100 bg-white">
+                      <div className="font-bold text-xs text-slate-800 mb-2 flex items-center justify-between">
+                        <span>Stock Batches Delivered by {s.name} ({batches.length})</span>
+                        <span className="text-[11px] text-slate-400 font-normal">Real-time inventory ledger</span>
+                      </div>
+                      {batches.length === 0 ? (
+                        <div className="py-6 text-center text-slate-400 bg-slate-50/60 rounded-lg border border-dashed">
+                          No stock batches recorded under this supplier yet. Click "+ Receive Stock" above to record a shipment.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] border-b">
+                              <tr>
+                                <th className="py-2.5 px-3">Batch #</th>
+                                <th className="py-2.5 px-3">Medicine Name</th>
+                                <th className="py-2.5 px-3">Date Received</th>
+                                <th className="py-2.5 px-3">Expiry Date</th>
+                                <th className="py-2.5 px-3 text-right">Qty Received</th>
+                                <th className="py-2.5 px-3 text-right">In Stock</th>
+                                <th className="py-2.5 px-3 text-right">Unit Cost</th>
+                                <th className="py-2.5 px-3 text-right">Batch Total</th>
+                                <th className="py-2.5 px-3">Received By</th>
+                                <th className="py-2.5 px-3 text-center">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {batches.map((b) => {
+                                const isExpired = new Date(b.expiryDate) < new Date();
+                                const isLow = b.quantityRemaining <= 10 && b.quantityRemaining > 0;
+                                const isDepleted = b.quantityRemaining === 0;
+
+                                return (
+                                  <tr key={b.id} className="hover:bg-slate-50/80">
+                                    <td className="py-2.5 px-3 font-mono font-bold text-teal-700">{b.batchNumber}</td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="font-bold text-slate-900">{b.medicine?.name}</div>
+                                      <div className="text-[10px] text-slate-400">{b.medicine?.genericName || b.medicine?.category}</div>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-slate-600">{fmtDate(b.receivedAt)}</td>
+                                    <td className="py-2.5 px-3 text-slate-600">{fmtDate(b.expiryDate)}</td>
+                                    <td className="py-2.5 px-3 text-right font-semibold">{b.quantityReceived.toLocaleString()} {b.medicine?.unit}</td>
+                                    <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                                      {b.quantityRemaining.toLocaleString()} {b.medicine?.unit}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right">{fmtTSh(b.purchasePrice)}</td>
+                                    <td className="py-2.5 px-3 text-right font-semibold">{fmtTSh(b.purchasePrice * b.quantityReceived)}</td>
+                                    <td className="py-2.5 px-3 text-slate-500">{b.receivedBy?.fullName || 'System Staff'}</td>
+                                    <td className="py-2.5 px-3 text-center">
+                                      {isDepleted ? (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">Depleted</span>
+                                      ) : isExpired ? (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">Expired</span>
+                                      ) : isLow ? (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">Low Stock</span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Active</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingSupplier(s);
-                      setSupplierForm({
-                        name: s.name,
-                        phone: s.phone || '',
-                        email: s.email || '',
-                        address: s.address || '',
-                      });
-                      setShowSupplierModal(true);
-                    }}
-                    className="px-3 py-1 rounded-lg border hover:bg-slate-50 font-semibold"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => deleteSupplier(s)}
-                    className="px-3 py-1 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 font-semibold"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

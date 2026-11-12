@@ -140,7 +140,25 @@ r.put(
 
 // ── Suppliers ──
 
-r.get('/suppliers', requirePerm('pharmacy.manage'), ah(async (_req, res) => res.json(await prisma.supplier.findMany({ orderBy: { name: 'asc' } }))));
+r.get(
+  '/suppliers',
+  requirePerm('pharmacy.manage'),
+  ah(async (_req, res) => {
+    const suppliers = await prisma.supplier.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        batches: {
+          orderBy: { receivedAt: 'desc' },
+          include: {
+            medicine: { select: { id: true, name: true, genericName: true, unit: true, category: true, sellingPrice: true } },
+            receivedBy: { select: { id: true, fullName: true } },
+          },
+        },
+      },
+    });
+    res.json(suppliers);
+  }),
+);
 
 const supplierBody = z.object({ name: reqStr(120), phone: optPhone, email: optStr(120), address: optStr(300) });
 r.post(

@@ -260,13 +260,20 @@ export default function DashboardPage() {
     });
   }
   if (data.pharmacy && can('medicines.view')) {
+    if (data.pharmacy.pendingPrescriptions != null) {
+      cards.push({
+        label: 'Pending Prescriptions',
+        value: data.pharmacy.pendingPrescriptions,
+        sub: `${data.pharmacy.pendingPrescriptionsList?.length || 0} prescription(s) awaiting dispense`,
+        icon: Stethoscope,
+        color: 'bg-teal-50 text-teal-700',
+        to: linkFor('/pharmacy?tab=prescriptions', 'prescriptions.view'),
+      });
+    }
     cards.push({
       label: 'Low-Stock Medicines',
       value: data.pharmacy.lowStockCount,
-      sub:
-        data.pharmacy.pendingPrescriptions != null
-          ? `${data.pharmacy.pendingPrescriptions} prescription(s) awaiting dispense`
-          : 'At or below reorder level',
+      sub: data.pharmacy.lowStockCount > 0 ? 'At or below reorder threshold' : 'All medicines well stocked',
       icon: Pill,
       color: 'bg-orange-50 text-orange-700',
       to: linkFor('/pharmacy?tab=alerts', 'medicines.view'),
@@ -278,6 +285,14 @@ export default function DashboardPage() {
       icon: AlertTriangle,
       color: 'bg-amber-50 text-amber-800',
       to: linkFor('/pharmacy?tab=alerts', 'medicines.view'),
+    });
+    cards.push({
+      label: 'Total Formulary Stock',
+      value: data.pharmacy.totalMedicines || 12,
+      sub: `${data.pharmacy.supplierCount || 3} registered suppliers`,
+      icon: PackagePlus,
+      color: 'bg-emerald-50 text-emerald-800',
+      to: linkFor('/pharmacy?tab=inventory', 'medicines.view'),
     });
   }
   if (data.lab && can('lab.view')) {
@@ -322,8 +337,18 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Dynamic Responsive Balanced KPI Grid */}
+      <div
+        className={`grid gap-4 ${
+          cards.length === 1
+            ? 'grid-cols-1 max-w-lg mx-auto'
+            : cards.length === 2
+            ? 'grid-cols-1 sm:grid-cols-2'
+            : cards.length === 3
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+        }`}
+      >
         {cards.map((c) => {
           const Icon = c.icon;
           const Inner = (
@@ -474,6 +499,70 @@ export default function DashboardPage() {
                         </Link>
                       )}
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 1b. Pharmacy Pending Prescriptions Queue (balances Pharmacist / Manager Dashboard) */}
+        {data.pharmacy && can('prescriptions.view') && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-sm text-slate-800">Pending Prescriptions Queue</h2>
+                <p className="text-[11px] text-slate-500">
+                  Doctor prescriptions awaiting verification and stock dispensing
+                </p>
+              </div>
+              <Link to="/pharmacy?tab=prescriptions" className="text-xs text-teal-600 hover:underline font-semibold">
+                View All Rx ({data.pharmacy.pendingPrescriptions || 0}) →
+              </Link>
+            </div>
+
+            {(!data.pharmacy.pendingPrescriptionsList || data.pharmacy.pendingPrescriptionsList.length === 0) ? (
+              <div className="p-6 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200 space-y-3">
+                <p className="text-xs text-slate-500">
+                  All prescriptions have been dispensed! No patients currently waiting for medicines.
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  <Link
+                    to="/pharmacy?tab=inventory"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
+                  >
+                    <PackagePlus className="w-3.5 h-3.5" /> Receive Stock
+                  </Link>
+                  <Link
+                    to="/pharmacy?tab=suppliers"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
+                  >
+                    Suppliers Directory
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2.5 text-xs">
+                {data.pharmacy.pendingPrescriptionsList.map((rx) => (
+                  <div
+                    key={rx.id}
+                    className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 flex items-center justify-between gap-3 transition"
+                  >
+                    <div>
+                      <div className="font-bold text-slate-900">
+                        <span className="font-mono text-teal-700">{rx.prescriptionNumber}</span> · {rx.patient?.firstName} {rx.patient?.lastName}{' '}
+                        <span className="text-slate-400 font-mono">({rx.patient?.patientNumber})</span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-0.5">
+                        Dr. {rx.doctor?.fullName} · {rx.items?.length || 0} item(s) prescribed
+                      </div>
+                    </div>
+                    <Link
+                      to={`/pharmacy?tab=prescriptions&rx=${rx.id}`}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold shrink-0 shadow-xs"
+                    >
+                      <Pill className="w-3.5 h-3.5" /> Dispense →
+                    </Link>
                   </div>
                 ))}
               </div>

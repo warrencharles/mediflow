@@ -178,6 +178,15 @@ export default function BillingPage() {
     }
   };
 
+  const sendPaymentSms = async (p) => {
+    try {
+      await api(`/billing/payments/${p.id}/send-sms`, { method: 'POST' });
+      toast(`SMS payment confirmation sent for receipt ${p.receiptNumber}.`);
+    } catch (e2) {
+      toast(e2.message, 'error');
+    }
+  };
+
   const requestDiscount = async (e) => {
     e.preventDefault();
     try {
@@ -546,6 +555,16 @@ export default function BillingPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold">{fmtTSh(p.amount)}</span>
+                          {p.status === 'VALID' && (
+                            <button
+                              type="button"
+                              onClick={() => sendPaymentSms(p)}
+                              className="px-2 py-0.5 rounded bg-teal-50 border border-teal-200 text-teal-800 text-[10px] font-bold hover:bg-teal-100"
+                              title="Resend SMS Confirmation"
+                            >
+                              SMS
+                            </button>
+                          )}
                           {p.status === 'VALID' && can('billing.cancel') && (
                             <button
                               onClick={() => voidPayment(p)}

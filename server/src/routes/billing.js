@@ -9,6 +9,7 @@ import { localRange, isDateStr } from '../lib/time.js';
 import { notify } from '../lib/notify.js';
 import { recalcInvoice, addInvoiceItem } from '../lib/billing.js';
 import { requirePerm } from '../middleware/auth.js';
+import { sendPaymentConfirmation } from '../lib/sms.js';
 
 const r = Router();
 
@@ -345,9 +346,24 @@ r.post(
       });
       const after = await recalcInvoice(id, tx);
       await audit(req, 'PAYMENT_RECEIVED', 'Invoice', id, { receiptNumber, amount: d.amount, method: d.method, reference: d.reference, balanceAfter: after.balance }, tx);
-      return p;
+      return { p, after, inv };
     });
-    res.status(201).json({ payment, invoice: await prisma.invoice.findUnique({ where: { id }, include: invoiceInclude }) });
+    const invWithPatient = await prisma.invoice.findUnique({ where: { id }, include: invoiceInclude });
+    sendPaymentConfirmation({ payment: payment.p, invoice: payment.after, patient: invWithPatient.patient }).catch((err) => console.error('[SMS payment confirmation failed]', err));
+    res.status(201).json({ payment: payment.p, invoice: invWithPatient });
+  }),
+);
+
+r.post(
+  '/payments/:id/send-sms',
+  requirePerm('billing.write'),
+  ah(async (req, res) => {
+    const id = idParam(req.params.id);
+    const p = await prisma.payment.findUnique({ where: { id }, include: { invoice: true, patient: true } });
+    if (!p) throw notFound('Payment not found');
+    const sms = await sendPaymentConfirmation({ payment: p, invoice: p.invoice, patient: p.patient });
+    await audit(req, 'PAYMENT_CONFIRMATION_SMS_SENT', 'Payment', id, { receiptNumber: p.receiptNumber, phone: p.patient?.phone });
+    res.json({ success: true, sms });
   }),
 );
 

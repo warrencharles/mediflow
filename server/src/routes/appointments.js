@@ -6,6 +6,7 @@ import { parse, reqStr, optStr, dateStr, idParam, pagination, posInt } from '../
 import { audit } from '../lib/audit.js';
 import { localRange, localParts, localDateTime, isDateStr } from '../lib/time.js';
 import { requirePerm } from '../middleware/auth.js';
+import { sendAppointmentReminder } from '../lib/sms.js';
 
 const r = Router();
 
@@ -148,7 +149,21 @@ r.post(
       await audit(req, 'APPOINTMENT_CREATED', 'Appointment', a.id, { patientId: d.patientId, doctorId: d.doctorId, startAt }, tx);
       return a;
     });
+    sendAppointmentReminder(appt).catch((err) => console.error('[SMS appointment reminder failed]', err));
     res.status(201).json(appt);
+  }),
+);
+
+r.post(
+  '/:id/send-sms',
+  requirePerm('appointments.write'),
+  ah(async (req, res) => {
+    const id = idParam(req.params.id);
+    const a = await prisma.appointment.findUnique({ where: { id }, include });
+    if (!a) throw notFound('Appointment not found');
+    const sms = await sendAppointmentReminder(a);
+    await audit(req, 'APPOINTMENT_REMINDER_SMS_SENT', 'Appointment', id, { phone: a.patient.phone, to: `${a.patient.firstName} ${a.patient.lastName}` });
+    res.json({ success: true, sms });
   }),
 );
 

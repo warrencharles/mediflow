@@ -293,7 +293,7 @@ r.post(
     if (!req.file) throw badRequest('No photo uploaded');
     const before = await prisma.patient.findUnique({ where: { id } });
     if (!before) {
-      fs.unlink(req.file.path, () => {});
+      fs.unlink(req.file.path, () => { });
       throw notFound('Patient not found');
     }
     const p = await prisma.patient.update({ where: { id }, data: { photoPath: req.file.filename } });
@@ -347,14 +347,15 @@ r.get(
   '/:id/vitals',
   requirePerm('vitals.write', 'consultations.view'),
   ah(async (req, res) => {
-    res.json(
-      await prisma.vitals.findMany({
-        where: { patientId: idParam(req.params.id) },
-        orderBy: { createdAt: 'desc' },
-        take: 50,
-        include: { recordedBy: { select: { fullName: true } } },
-      }),
-    );
+    const id = idParam(req.params.id);
+    const data = await prisma.vitals.findMany({
+      where: { patientId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { recordedBy: { select: { fullName: true } } },
+    });
+    await audit(req, 'MEDICAL_RECORD_ACCESSED', 'Patient', id, { section: 'Vital Signs' });
+    res.json(data);
   }),
 );
 
@@ -373,7 +374,7 @@ r.get(
         visit: { include: { vitals: { orderBy: { createdAt: 'desc' }, take: 1 } } },
       },
     });
-    await audit(req, 'MEDICAL_HISTORY_VIEWED', 'Patient', id);
+    await audit(req, 'MEDICAL_RECORD_ACCESSED', 'Patient', id, { section: 'Medical Consultations & Diagnoses' });
     res.json(items);
   }),
 );
@@ -382,16 +383,17 @@ r.get(
   '/:id/prescriptions',
   requirePerm('prescriptions.view'),
   ah(async (req, res) => {
-    res.json(
-      await prisma.prescription.findMany({
-        where: { patientId: idParam(req.params.id) },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          doctor: { select: { fullName: true } },
-          items: { include: { medicine: { select: { name: true, unit: true } } } },
-        },
-      }),
-    );
+    const id = idParam(req.params.id);
+    const list = await prisma.prescription.findMany({
+      where: { patientId: id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        doctor: { select: { fullName: true } },
+        items: { include: { medicine: { select: { name: true, unit: true } } } },
+      },
+    });
+    await audit(req, 'MEDICAL_RECORD_ACCESSED', 'Patient', id, { section: 'Prescriptions' });
+    res.json(list);
   }),
 );
 
@@ -399,13 +401,14 @@ r.get(
   '/:id/lab-requests',
   requirePerm('lab.view'),
   ah(async (req, res) => {
-    res.json(
-      await prisma.labRequest.findMany({
-        where: { patientId: idParam(req.params.id) },
-        orderBy: { createdAt: 'desc' },
-        include: { labTest: true, doctor: { select: { fullName: true } } },
-      }),
-    );
+    const id = idParam(req.params.id);
+    const list = await prisma.labRequest.findMany({
+      where: { patientId: id },
+      orderBy: { createdAt: 'desc' },
+      include: { labTest: true, doctor: { select: { fullName: true } } },
+    });
+    await audit(req, 'MEDICAL_RECORD_ACCESSED', 'Patient', id, { section: 'Laboratory Tests & Results' });
+    res.json(list);
   }),
 );
 

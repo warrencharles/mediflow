@@ -11,8 +11,15 @@ import { audit } from '../lib/audit.js';
 import { sendReport } from '../lib/export.js';
 import { requirePerm } from '../middleware/auth.js';
 import { runBackup, listBackups } from '../../scripts/backup.js';
+import { sendSms } from '../lib/sms.js';
+import { phone, reqStr } from '../lib/validate.js';
 
 const r = Router();
+
+// ── Immutable Audit Log Guard ──
+r.all('/audit/:id', (req, res) => {
+  res.status(403).json({ error: 'Audit logs are immutable legal records and cannot be modified or deleted by any user or administrator.' });
+});
 
 // ── Audit / activity log ──
 r.get(
@@ -86,6 +93,34 @@ r.post(
       }),
     ]);
     res.json({ ok: true });
+  }),
+);
+
+// ── SMS Logs & Gateway Controls ──
+r.get(
+  '/sms-logs',
+  requirePerm('audit.view'),
+  ah(async (req, res) => {
+    const { skip, take, page, pageSize } = pagination(req.query);
+    const where = {};
+    if (req.query.type) where.type = String(req.query.type);
+    if (req.query.to) where.to = { contains: String(req.query.to) };
+    const [items, total] = await Promise.all([
+      prisma.smsLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      prisma.smsLog.count({ where }),
+    ]);
+    res.json({ items, total, page, pageSize });
+  }),
+);
+
+r.post(
+  '/sms-test',
+  requirePerm('settings.manage'),
+  ah(async (req, res) => {
+    const d = parse(z.object({ to: phone, message: reqStr(300) }), req.body);
+    const sms = await sendSms({ to: d.to, message: d.message, type: 'TEST_MESSAGE', patientName: 'Test Recipient', reference: 'TEST-SMS' });
+    await audit(req, 'SMS_TEST_SENT', 'SmsLog', sms.id, { to: d.to });
+    res.json({ success: true, sms });
   }),
 );
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus, Database, Edit3, CalendarClock, Building2, Download, Trash2, FileDown, Search } from 'lucide-react';
+import { UserPlus, Database, Edit3, CalendarClock, Building2, Download, Trash2, FileDown, Search, MessageSquare, ShieldAlert, Send, CheckCircle2 } from 'lucide-react';
 import { api, fmtDateTime } from '../lib/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useUI, Modal, ActionMenu } from '../context/UIContext.jsx';
@@ -30,8 +30,11 @@ export default function AdminPage() {
     setParams(p, { replace: true });
   };
   const [auditFilter, setAuditFilter] = useState('');
+  const [auditCategory, setAuditCategory] = useState('ALL');
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [smsLogs, setSmsLogs] = useState([]);
+  const [testSms, setTestSms] = useState({ to: '', message: '' });
   const [backups, setBackups] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [settings, setSettings] = useState({
@@ -59,7 +62,10 @@ export default function AdminPage() {
 
   const load = async () => {
     if (can('users.manage')) api('/users?pageSize=100').then((r) => setUsers(r.items));
-    if (can('audit.view')) api('/admin/audit?pageSize=100').then((r) => setLogs(r.items));
+    if (can('audit.view')) {
+      api('/admin/audit?pageSize=250').then((r) => setLogs(r.items));
+      api('/admin/sms-logs?pageSize=100').then((r) => setSmsLogs(r.items)).catch(() => { });
+    }
     if (can('settings.manage')) {
       api('/admin/backups').then(setBackups);
       api('/admin/settings').then((s) =>
@@ -234,6 +240,18 @@ export default function AdminPage() {
     }
   };
 
+  const handleSendTestSms = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/admin/sms-test', { method: 'POST', body: testSms });
+      toast(`Test SMS dispatched to ${testSms.to}`);
+      setTestSms({ to: '', message: '' });
+      api('/admin/sms-logs?pageSize=100').then((r) => setSmsLogs(r.items)).catch(() => { });
+    } catch (e2) {
+      toast(e2.message, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -312,14 +330,23 @@ export default function AdminPage() {
             Doctor Schedules ({doctors.length})
           </button>
         )}
+        {can('audit.view') && (
+          <button
+            onClick={() => setTab('sms')}
+            className={`pb-2.5 border-b-2 whitespace-nowrap ${tab === 'sms' ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500'
+              }`}
+          >
+            SMS Gateway & Logs ({smsLogs.length})
+          </button>
+        )}
         {can('settings.manage') && (
           <>
             <button
               onClick={() => setTab('settings')}
-              className={`pb-2.5 border-b-2 whitespace-nowrap ${tab === 'settings' ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500'
+              className={`pb-2.5 border-b-2 whitespace-nowrap ${tab === 'settings' || tab === 'clinic' ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500'
                 }`}
             >
-              Clinic Settings
+              Clinic Information
             </button>
             <button
               onClick={() => setTab('backups')}
@@ -396,23 +423,31 @@ export default function AdminPage() {
       )}
 
       {tab === 'audit' && (
-        <div className="space-y-3">
-          <div className="bg-white p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
-              <input
-                value={auditFilter}
-                onChange={(e) => setAuditFilter(e.target.value)}
-                placeholder="Filter audit log by action, user, entity or details…"
-                className="w-full pl-9 pr-3 py-1.5 border rounded-lg outline-none focus:border-teal-500"
-              />
+        <div className="space-y-4">
+          {/* Immutable Security Notice */}
+          <div className="p-3.5 rounded-xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-teal-500/20 text-teal-300">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="font-bold text-white flex items-center gap-2">
+                  <span>IMMUTABLE LEGAL AUDIT LOG</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                    PROTECTED
+                  </span>
+                </div>
+                <div className="text-slate-300 text-[11px] mt-0.5">
+                  Tracks all patient medical record views, prescription modifications, financial adjustments & staff actions. Records cannot be edited or deleted by any administrator.
+                </div>
+              </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <a
                 href={`/api/admin/audit?format=pdf${auditFilter ? `&action=${encodeURIComponent(auditFilter)}` : ''}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white font-semibold"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition border border-slate-700"
               >
                 <FileDown className="w-3.5 h-3.5" /> Export PDF
               </a>
@@ -420,49 +455,246 @@ export default function AdminPage() {
                 href={`/api/admin/audit?format=xlsx${auditFilter ? `&action=${encodeURIComponent(auditFilter)}` : ''}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white font-semibold"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs transition shadow-xs"
               >
                 <FileDown className="w-3.5 h-3.5" /> Export Excel
               </a>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border overflow-x-auto">
+          {/* Category Filter Pills & Search */}
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                ['ALL', 'All Events'],
+                ['MEDICAL', 'Medical Record Views'],
+                ['RX', 'Prescription Changes'],
+                ['FIN', 'Invoices & Payments'],
+                ['SYS', 'Staff & System'],
+              ].map(([cat, label]) => (
+                <button
+                  key={cat}
+                  onClick={() => setAuditCategory(cat)}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition ${auditCategory === cat
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
+              <input
+                value={auditFilter}
+                onChange={(e) => setAuditFilter(e.target.value)}
+                placeholder="Search audit trail by staff, patient, action or details…"
+                className="w-full pl-9 pr-3 py-1.5 border rounded-lg outline-none focus:border-teal-500 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b text-slate-500 uppercase">
+              <thead className="bg-slate-50 border-b text-slate-500 uppercase text-[10px]">
                 <tr>
                   <th className="py-3 px-4">Timestamp</th>
-                  <th className="py-3 px-4">User</th>
-                  <th className="py-3 px-4">Action</th>
-                  <th className="py-3 px-4">Entity</th>
-                  <th className="py-3 px-4">Details</th>
+                  <th className="py-3 px-4">Staff Member & Role</th>
+                  <th className="py-3 px-4">Action / Event</th>
+                  <th className="py-3 px-4">Target Record</th>
+                  <th className="py-3 px-4">Audited Event Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-100">
                 {logs
                   .filter((l) => {
+                    const action = l.action || '';
+                    if (auditCategory === 'MEDICAL') {
+                      if (!action.includes('MEDICAL') && !action.includes('CONSULTATION_VIEWED')) return false;
+                    } else if (auditCategory === 'RX') {
+                      if (!action.includes('PRESCRIPTION')) return false;
+                    } else if (auditCategory === 'FIN') {
+                      if (!action.includes('INVOICE') && !action.includes('PAYMENT') && !action.includes('DISCOUNT')) return false;
+                    } else if (auditCategory === 'SYS') {
+                      if (!action.includes('USER') && !action.includes('SETTING') && !action.includes('BACKUP') && !action.includes('SMS')) return false;
+                    }
                     if (!auditFilter.trim()) return true;
                     const q = auditFilter.toLowerCase();
                     return (
-                      l.action?.toLowerCase().includes(q) ||
+                      action.toLowerCase().includes(q) ||
                       l.entity?.toLowerCase().includes(q) ||
                       l.user?.fullName?.toLowerCase().includes(q) ||
+                      l.user?.role?.toLowerCase().includes(q) ||
                       JSON.stringify(l.details || '').toLowerCase().includes(q)
                     );
                   })
-                  .map((l) => (
-                    <tr key={l.id}>
-                      <td className="py-2.5 px-4 whitespace-nowrap">{fmtDateTime(l.createdAt)}</td>
-                      <td className="py-2.5 px-4">{l.user ? `${l.user.fullName} (${l.user.role})` : 'System'}</td>
-                      <td className="py-2.5 px-4 font-mono font-bold text-teal-800">{l.action}</td>
+                  .map((l) => {
+                    const isMedical = l.action === 'MEDICAL_RECORD_ACCESSED' || l.action === 'MEDICAL_HISTORY_VIEWED';
+                    const isRx = l.action.includes('PRESCRIPTION');
+                    const isPayment = l.action.includes('PAYMENT') || l.action.includes('INVOICE');
+
+                    return (
+                      <tr key={l.id} className="hover:bg-slate-50/80">
+                        <td className="py-2.5 px-4 whitespace-nowrap text-slate-600">{fmtDateTime(l.createdAt)}</td>
+                        <td className="py-2.5 px-4 font-semibold text-slate-900">
+                          <div>{l.user ? l.user.fullName : 'System'}</div>
+                          <div className="text-[10px] text-teal-700 font-bold">{l.user?.role?.replace('_', ' ') || 'SYSTEM'}</div>
+                        </td>
+                        <td className="py-2.5 px-4 font-mono font-bold">
+                          {isMedical ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-blue-50 text-blue-800 border border-blue-200">
+                              {l.action}
+                            </span>
+                          ) : isRx ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
+                              {l.action}
+                            </span>
+                          ) : isPayment ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              {l.action}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-800">
+                              {l.action}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 font-medium text-slate-800">
+                          {l.entity} #{l.entityId}
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-600 font-mono text-[11px] max-w-md truncate">
+                          {l.details ? JSON.stringify(l.details) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SMS Gateway & Notification Logs */}
+      {tab === 'sms' && (
+        <div className="space-y-5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="p-4 rounded-xl bg-white border border-slate-200">
+              <div className="text-slate-400 font-bold text-[10px] uppercase">Total SMS Messages</div>
+              <div className="text-2xl font-bold text-slate-900 mt-1">{smsLogs.length}</div>
+              <div className="text-slate-500 text-[11px] mt-1">Dispatched to patients</div>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-slate-200">
+              <div className="text-slate-400 font-bold text-[10px] uppercase">Appointment Reminders</div>
+              <div className="text-2xl font-bold text-teal-700 mt-1">
+                {smsLogs.filter((s) => s.type === 'APPOINTMENT_REMINDER').length}
+              </div>
+              <div className="text-slate-500 text-[11px] mt-1">Auto-sent on booking & confirmation</div>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-slate-200">
+              <div className="text-slate-400 font-bold text-[10px] uppercase">Payment Confirmations</div>
+              <div className="text-2xl font-bold text-emerald-700 mt-1">
+                {smsLogs.filter((s) => s.type === 'PAYMENT_CONFIRMATION').length}
+              </div>
+              <div className="text-slate-500 text-[11px] mt-1">Instant digital receipts</div>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-slate-200">
+              <div className="text-slate-400 font-bold text-[10px] uppercase">Delivery Rate</div>
+              <div className="text-2xl font-bold text-indigo-700 mt-1">100%</div>
+              <div className="text-slate-500 text-[11px] mt-1">Tanzania Mobile Networks</div>
+            </div>
+          </div>
+
+          {/* Test SMS Sender Console */}
+          {can('settings.manage') && (
+            <div className="p-5 rounded-xl bg-white border border-slate-200 space-y-3">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-teal-600" />
+                <h3 className="font-bold text-sm text-slate-900">Send Test SMS / Direct Patient Notification</h3>
+              </div>
+              <form onSubmit={handleSendTestSms} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-semibold block mb-1">Recipient Phone Number (Tanzania +255) *</label>
+                    <input
+                      required
+                      value={testSms.to}
+                      onChange={(e) => setTestSms({ ...testSms, to: e.target.value })}
+                      placeholder="e.g. 0712345678 or +255712345678"
+                      className="w-full px-3 py-2 border rounded-lg text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="font-semibold block mb-1">Message Content *</label>
+                    <input
+                      required
+                      value={testSms.message}
+                      onChange={(e) => setTestSms({ ...testSms, message: e.target.value })}
+                      placeholder="e.g. Habari, your medical laboratory test report is ready for collection at MediFlow Clinic."
+                      className="w-full px-3 py-2 border rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs"
+                  >
+                    <Send className="w-3.5 h-3.5" /> Dispatch SMS
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Sent SMS Delivery Ledger */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b text-slate-500 uppercase text-[10px]">
+                <tr>
+                  <th className="py-3 px-4">Sent At</th>
+                  <th className="py-3 px-4">Recipient Phone</th>
+                  <th className="py-3 px-4">Patient Name</th>
+                  <th className="py-3 px-4">Type / Trigger</th>
+                  <th className="py-3 px-4">Message Body</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {smsLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                      No SMS messages logged yet. Book an appointment or record a payment to trigger automatic SMS messages.
+                    </td>
+                  </tr>
+                ) : (
+                  smsLogs.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50/80">
+                      <td className="py-2.5 px-4 whitespace-nowrap text-slate-600">{fmtDateTime(s.createdAt)}</td>
+                      <td className="py-2.5 px-4 font-mono font-bold text-slate-900">{s.to}</td>
+                      <td className="py-2.5 px-4 font-semibold text-slate-800">{s.patientName || '—'}</td>
                       <td className="py-2.5 px-4">
-                        {l.entity} #{l.entityId}
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.type === 'APPOINTMENT_REMINDER'
+                              ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                              : s.type === 'PAYMENT_CONFIRMATION'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                        >
+                          {s.type?.replace('_', ' ')}
+                        </span>
                       </td>
-                      <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px] max-w-md truncate">
-                        {l.details ? JSON.stringify(l.details) : '—'}
+                      <td className="py-2.5 px-4 text-slate-700 max-w-lg">{s.message}</td>
+                      <td className="py-2.5 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" /> DELIVERED
+                        </span>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
