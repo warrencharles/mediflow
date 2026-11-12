@@ -1,0 +1,14 @@
+{
+  "name": "mediflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MediFlow – Clinic Management & Patient Care System (MF-2026-001)",
+  "scripts": {
+    "build": "npm --prefix client run build",
+    "start": "node scripts/start-all.js",
+    "test": "npm --prefix server test",
+    "backup": "npm --prefix server run backup",
+    "seed": "npm --prefix server run db:seed"
+  }
+}
+

@@ -1,0 +1,683 @@
+// MediFlow – Clinic Management & Patient Care System
+// Database schema (PostgreSQL). All money values are whole Tanzanian Shillings (Int).
+// Medical & financial records are never hard-deleted: they are cancelled / voided /
+// deactivated with a reason, and every change is written to AuditLog.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Auth & administration ─────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  MANAGER
+  RECEPTIONIST
+  DOCTOR
+  NURSE
+  PHARMACIST
+  ACCOUNTANT
+  LAB_TECHNICIAN
+}
+
+model User {
+  id                 Int       @id @default(autoincrement())
+  fullName           String
+  email              String    @unique
+  phone              String?
+  role               Role
+  passwordHash       String
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  failedLogins       Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  sessions               Session[]
+  passwordResets         PasswordReset[]
+  auditLogs              AuditLog[]
+  schedules              DoctorSchedule[]
+  doctorAppointments     Appointment[]    @relation("AppointmentDoctor")
+  createdAppointments    Appointment[]    @relation("AppointmentCreator")
+  createdPatients        Patient[]        @relation("PatientCreator")
+  consultations          Consultation[]
+  prescriptions          Prescription[]
+  vitalsRecorded         Vitals[]
+  dispensations          Dispensation[]
+  labRequests            LabRequest[]     @relation("LabRequestDoctor")
+  labResults             LabRequest[]     @relation("LabResultEnteredBy")
+  paymentsReceived       Payment[]        @relation("PaymentReceiver")
+  paymentsVoided         Payment[]        @relation("PaymentVoider")
+  invoicesCreated        Invoice[]        @relation("InvoiceCreator")
+  invoicesCancelled      Invoice[]        @relation("InvoiceCanceller")
+  discountsRequested     Discount[]       @relation("DiscountRequester")
+  discountsDecided       Discount[]       @relation("DiscountDecider")
+  stockMovements         StockMovement[]
+  batchesReceived        MedicineBatch[]
+  visitsCheckedIn        Visit[]          @relation("VisitCheckedInBy")
+  visitsAssigned         Visit[]          @relation("VisitDoctor")
+  notifications          Notification[]
+  invoiceItemsCreated    InvoiceItem[]    @relation("InvoiceItemCreator")
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id])
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([userId])
+}
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Sequential human-readable numbers (patient IDs, invoice numbers, receipts...)
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int?
+  user      User?     @relation(fields: [userId], references: [id])
+  role      Role?
+  title     String
+  message   String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([role, createdAt])
+}
+
+// ───────────────────────────── Patients ─────────────────────────────
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum PatientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Patient {
+  id                   Int           @id @default(autoincrement())
+  patientNumber        String        @unique
+  firstName            String
+  middleName           String?
+  lastName             String
+  gender               Gender
+  dateOfBirth          DateTime      @db.Date
+  phone                String
+  altPhone             String?
+  email                String?
+  address              String
+  region               String?
+  nationalId           String?
+  occupation           String?
+  bloodGroup           String?
+  photoPath            String?
+  emergencyName        String
+  emergencyPhone       String
+  emergencyRelation    String?
+  medicalHistory       String?
+  allergies            String?
+  chronicConditions    String?
+  status               PatientStatus @default(ACTIVE)
+  possibleDuplicateOf  Int?
+  createdById          Int?
+  createdBy            User?         @relation("PatientCreator", fields: [createdById], references: [id])
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  appointments   Appointment[]
+  visits         Visit[]
+  vitals         Vitals[]
+  consultations  Consultation[]
+  prescriptions  Prescription[]
+  dispensations  Dispensation[]
+  labRequests    LabRequest[]
+  invoices       Invoice[]
+  payments       Payment[]
+
+  @@index([phone])
+  @@index([lastName, firstName])
+}
+
+// ───────────────────────────── Appointments ─────────────────────────────
+
+model DoctorSchedule {
+  id        Int    @id @default(autoincrement())
+  doctorId  Int
+  doctor    User   @relation(fields: [doctorId], references: [id])
+  weekday   Int // 0 = Sunday … 6 = Saturday
+  startTime String // "08:00"
+  endTime   String // "17:00"
+
+  @@index([doctorId, weekday])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id              Int               @id @default(autoincrement())
+  patientId       Int
+  patient         Patient           @relation(fields: [patientId], references: [id])
+  doctorId        Int
+  doctor          User              @relation("AppointmentDoctor", fields: [doctorId], references: [id])
+  startAt         DateTime
+  endAt           DateTime
+  reason          String
+  notes           String?
+  status          AppointmentStatus @default(SCHEDULED)
+  cancelReason    String?
+  rescheduleCount Int               @default(0)
+  createdById     Int?
+  createdBy       User?             @relation("AppointmentCreator", fields: [createdById], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  visit           Visit?
+
+  @@index([doctorId, startAt])
+  @@index([patientId])
+}
+
+// ───────────────────────────── Visits / queue ─────────────────────────────
+
+enum QueueStatus {
+  WAITING
+  VITALS
+  AWAITING_DOCTOR
+  IN_CONSULTATION
+  COMPLETED
+  CANCELLED
+}
+
+model Visit {
+  id                    Int          @id @default(autoincrement())
+  visitNumber           String       @unique
+  patientId             Int
+  patient               Patient      @relation(fields: [patientId], references: [id])
+  appointmentId         Int?         @unique
+  appointment           Appointment? @relation(fields: [appointmentId], references: [id])
+  queueDate             String // YYYY-MM-DD in clinic timezone
+  queueNumber           Int
+  status                QueueStatus  @default(WAITING)
+  priority              String       @default("NORMAL") // NORMAL | URGENT
+  reason                String?
+  assignedDoctorId      Int?
+  assignedDoctor        User?        @relation("VisitDoctor", fields: [assignedDoctorId], references: [id])
+  checkedInById         Int?
+  checkedInBy           User?        @relation("VisitCheckedInBy", fields: [checkedInById], references: [id])
+  checkedInAt           DateTime     @default(now())
+  vitalsAt              DateTime?
+  consultationStartedAt DateTime?
+  completedAt           DateTime?
+  cancelReason          String?
+
+  vitals        Vitals[]
+  consultation  Consultation?
+  labRequests   LabRequest[]
+  invoices      Invoice[]
+
+  @@unique([queueDate, queueNumber])
+  @@index([status])
+}
+
+model Vitals {
+  id            Int      @id @default(autoincrement())
+  visitId       Int
+  visit         Visit    @relation(fields: [visitId], references: [id])
+  patientId     Int
+  patient       Patient  @relation(fields: [patientId], references: [id])
+  temperature   Float?
+  systolic      Int?
+  diastolic     Int?
+  pulse         Int?
+  respRate      Int?
+  spo2          Int?
+  weightKg      Float?
+  heightCm      Float?
+  bmi           Float?
+  notes         String?
+  recordedById  Int
+  recordedBy    User     @relation(fields: [recordedById], references: [id])
+  createdAt     DateTime @default(now())
+}
+
+// ───────────────────────────── Consultations ─────────────────────────────
+
+enum ConsultationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Consultation {
+  id            Int                @id @default(autoincrement())
+  visitId       Int?               @unique
+  visit         Visit?             @relation(fields: [visitId], references: [id])
+  patientId     Int
+  patient       Patient            @relation(fields: [patientId], references: [id])
+  doctorId      Int
+  doctor        User               @relation(fields: [doctorId], references: [id])
+  symptoms      String?
+  examination   String?
+  diagnosis     String?
+  treatmentPlan String?
+  notes         String?
+  followUpDate  DateTime?          @db.Date
+  status        ConsultationStatus @default(IN_PROGRESS)
+  startedAt     DateTime           @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime           @updatedAt
+
+  prescriptions Prescription[]
+  labRequests   LabRequest[]
+
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+enum PrescriptionStatus {
+  PENDING
+  PARTIALLY_DISPENSED
+  DISPENSED
+  CANCELLED
+}
+
+model Prescription {
+  id             Int                @id @default(autoincrement())
+  prescriptionNumber String         @unique
+  consultationId Int
+  consultation   Consultation       @relation(fields: [consultationId], references: [id])
+  patientId      Int
+  patient        Patient            @relation(fields: [patientId], references: [id])
+  doctorId       Int
+  doctor         User               @relation(fields: [doctorId], references: [id])
+  status         PrescriptionStatus @default(PENDING)
+  notes          String?
+  cancelReason   String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  items         PrescriptionItem[]
+  dispensations Dispensation[]
+
+  @@index([status])
+}
+
+model PrescriptionItem {
+  id                Int          @id @default(autoincrement())
+  prescriptionId    Int
+  prescription      Prescription @relation(fields: [prescriptionId], references: [id])
+  medicineId        Int
+  medicine          Medicine     @relation(fields: [medicineId], references: [id])
+  dosage            String
+  frequency         String
+  durationDays      Int?
+  quantity          Int
+  quantityDispensed Int          @default(0)
+  instructions      String?
+
+  dispensationItems DispensationItem[]
+}
+
+// ───────────────────────────── Pharmacy & inventory ─────────────────────────────
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  phone     String?
+  email     String?
+  address   String?
+  createdAt DateTime @default(now())
+
+  batches MedicineBatch[]
+}
+
+model Medicine {
+  id           Int      @id @default(autoincrement())
+  name         String
+  genericName  String?
+  brandName    String?
+  category     String
+  form         String? // tablet, syrup, injection...
+  unit         String   @default("unit")
+  sellingPrice Int
+  reorderLevel Int      @default(10)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  batches           MedicineBatch[]
+  movements         StockMovement[]
+  prescriptionItems PrescriptionItem[]
+  dispensationItems DispensationItem[]
+
+  @@unique([name, brandName])
+}
+
+model MedicineBatch {
+  id                Int       @id @default(autoincrement())
+  medicineId        Int
+  medicine          Medicine  @relation(fields: [medicineId], references: [id])
+  batchNumber       String
+  expiryDate        DateTime  @db.Date
+  purchasePrice     Int
+  quantityReceived  Int
+  quantityRemaining Int
+  supplierId        Int?
+  supplier          Supplier? @relation(fields: [supplierId], references: [id])
+  receivedById      Int?
+  receivedBy        User?     @relation(fields: [receivedById], references: [id])
+  receivedAt        DateTime  @default(now())
+
+  movements         StockMovement[]
+  dispensationItems DispensationItem[]
+
+  @@unique([medicineId, batchNumber])
+  @@index([expiryDate])
+}
+
+enum StockMovementType {
+  STOCK_IN
+  DISPENSE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  EXPIRED_WRITE_OFF
+}
+
+model StockMovement {
+  id         Int               @id @default(autoincrement())
+  medicineId Int
+  medicine   Medicine          @relation(fields: [medicineId], references: [id])
+  batchId    Int?
+  batch      MedicineBatch?    @relation(fields: [batchId], references: [id])
+  type       StockMovementType
+  quantity   Int // positive = in, negative = out
+  reason     String?
+  reference  String?
+  userId     Int?
+  user       User?             @relation(fields: [userId], references: [id])
+  createdAt  DateTime          @default(now())
+
+  @@index([medicineId, createdAt])
+}
+
+model Dispensation {
+  id             Int          @id @default(autoincrement())
+  dispenseNumber String       @unique
+  prescriptionId Int
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id])
+  patientId      Int
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  pharmacistId   Int
+  pharmacist     User         @relation(fields: [pharmacistId], references: [id])
+  totalAmount    Int
+  invoiceId      Int?
+  createdAt      DateTime     @default(now())
+
+  items DispensationItem[]
+}
+
+model DispensationItem {
+  id                 Int              @id @default(autoincrement())
+  dispensationId     Int
+  dispensation       Dispensation     @relation(fields: [dispensationId], references: [id])
+  prescriptionItemId Int
+  prescriptionItem   PrescriptionItem @relation(fields: [prescriptionItemId], references: [id])
+  medicineId         Int
+  medicine           Medicine         @relation(fields: [medicineId], references: [id])
+  batchId            Int
+  batch              MedicineBatch    @relation(fields: [batchId], references: [id])
+  quantity           Int
+  unitPrice          Int
+  lineTotal          Int
+}
+
+// ───────────────────────────── Laboratory ─────────────────────────────
+
+model LabTest {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  category    String?
+  price       Int
+  normalRange String?
+  unit        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  requests LabRequest[]
+}
+
+enum LabStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model LabRequest {
+  id                Int           @id @default(autoincrement())
+  requestNumber     String        @unique
+  patientId         Int
+  patient           Patient       @relation(fields: [patientId], references: [id])
+  visitId           Int?
+  visit             Visit?        @relation(fields: [visitId], references: [id])
+  consultationId    Int?
+  consultation      Consultation? @relation(fields: [consultationId], references: [id])
+  doctorId          Int
+  doctor            User          @relation("LabRequestDoctor", fields: [doctorId], references: [id])
+  labTestId         Int
+  labTest           LabTest       @relation(fields: [labTestId], references: [id])
+  price             Int
+  clinicalNotes     String?
+  priority          String        @default("ROUTINE")
+  status            LabStatus     @default(PENDING)
+  result            String?
+  resultValue       String?
+  isAbnormal        Boolean?
+  resultFilePath    String?
+  resultFileName    String?
+  resultEnteredById Int?
+  resultEnteredBy   User?         @relation("LabResultEnteredBy", fields: [resultEnteredById], references: [id])
+  resultEnteredAt   DateTime?
+  cancelReason      String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([status])
+  @@index([patientId])
+}
+
+// ───────────────────────────── Billing ─────────────────────────────
+
+model Service {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  category  String // CONSULTATION | PROCEDURE | OTHER
+  price     Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model Invoice {
+  id             Int           @id @default(autoincrement())
+  invoiceNumber  String        @unique
+  patientId      Int
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  visitId        Int?
+  visit          Visit?        @relation(fields: [visitId], references: [id])
+  status         InvoiceStatus @default(UNPAID)
+  subtotal       Int           @default(0)
+  discountAmount Int           @default(0)
+  total          Int           @default(0)
+  amountPaid     Int           @default(0)
+  balance        Int           @default(0)
+  notes          String?
+  createdById    Int?
+  createdBy      User?         @relation("InvoiceCreator", fields: [createdById], references: [id])
+  cancelledById  Int?
+  cancelledBy    User?         @relation("InvoiceCanceller", fields: [cancelledById], references: [id])
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  items     InvoiceItem[]
+  payments  Payment[]
+  discounts Discount[]
+
+  @@index([patientId])
+  @@index([status])
+}
+
+enum InvoiceItemType {
+  CONSULTATION
+  LAB
+  MEDICINE
+  SERVICE
+  OTHER
+}
+
+model InvoiceItem {
+  id          Int             @id @default(autoincrement())
+  invoiceId   Int
+  invoice     Invoice         @relation(fields: [invoiceId], references: [id])
+  type        InvoiceItemType
+  description String
+  quantity    Int             @default(1)
+  unitPrice   Int
+  lineTotal   Int
+  sourceType  String?
+  sourceId    Int?
+  voided      Boolean         @default(false)
+  voidReason  String?
+  createdById Int?
+  createdBy   User?           @relation("InvoiceItemCreator", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+}
+
+enum DiscountStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Discount {
+  id            Int            @id @default(autoincrement())
+  invoiceId     Int
+  invoice       Invoice        @relation(fields: [invoiceId], references: [id])
+  amount        Int
+  reason        String
+  status        DiscountStatus @default(PENDING)
+  requestedById Int
+  requestedBy   User           @relation("DiscountRequester", fields: [requestedById], references: [id])
+  decidedById   Int?
+  decidedBy     User?          @relation("DiscountDecider", fields: [decidedById], references: [id])
+  decidedAt     DateTime?
+  decisionNote  String?
+  createdAt     DateTime       @default(now())
+}
+
+enum PaymentMethod {
+  CASH
+  MPESA
+  TIGO_PESA
+  AIRTEL_MONEY
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  VALID
+  VOIDED
+}
+
+model Payment {
+  id            Int           @id @default(autoincrement())
+  receiptNumber String        @unique
+  invoiceId     Int
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  patientId     Int
+  patient       Patient       @relation(fields: [patientId], references: [id])
+  amount        Int
+  method        PaymentMethod
+  reference     String?
+  notes         String?
+  status        PaymentStatus @default(VALID)
+  receivedById  Int
+  receivedBy    User          @relation("PaymentReceiver", fields: [receivedById], references: [id])
+  paidAt        DateTime      @default(now())
+  voidedById    Int?
+  voidedBy      User?         @relation("PaymentVoider", fields: [voidedById], references: [id])
+  voidedAt      DateTime?
+  voidReason    String?
+
+  @@index([paidAt])
+  @@index([invoiceId])
+}
+

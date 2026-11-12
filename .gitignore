@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build outputs
+dist/
+client/dist/
+
+# Database & Runtime data
+.pgdata/
+server/.pgdata/
+*.sqlite
+*.sqlite3
+*.db
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+!.env.example
+
+# File uploads & backups (track directory with .gitkeep, ignore generated content)
+server/uploads/*
+!server/uploads/.gitkeep
+!server/uploads/photos/
+server/uploads/photos/*
+!server/uploads/photos/.gitkeep
+!server/uploads/lab/
+server/uploads/lab/*
+!server/uploads/lab/.gitkeep
+server/backups/*
+!server/backups/.gitkeep
+
+# System & Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+
+# Logs & temp files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+_test_out.*
+_tmp.*
