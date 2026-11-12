@@ -130,7 +130,7 @@ r.get(
       });
       const [supplierCount, dispensationsToday, pendingPrescriptionsList] = await Promise.all([
         prisma.supplier.count(),
-        prisma.dispensation.count({ where: { dispensedAt: { gte: start, lt: end } } }),
+        prisma.dispensation.count({ where: { createdAt: { gte: start, lt: end } } }),
         hasPerm(req, 'prescriptions.view')
           ? prisma.prescription.findMany({
               where: { status: { in: ['PENDING', 'PARTIALLY_DISPENSED'] } },
