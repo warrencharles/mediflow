@@ -2,13 +2,20 @@
   "name": "mediflow",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "MediFlow – Clinic Management & Patient Care System (MF-2026-001)",
   "scripts": {
     "build": "npm --prefix client run build",
+    "vercel-build": "npm --prefix server install && npm --prefix server run generate && npm --prefix client install && npm --prefix client run build",
+    "db:push": "npx --prefix server prisma db push",
+    "db:seed": "node --prefix server prisma/seed.js",
     "start": "node scripts/start-all.js",
     "test": "npm --prefix server test",
     "backup": "npm --prefix server run backup",
     "seed": "npm --prefix server run db:seed"
-  }
+  },
+  "workspaces": [
+    "client",
+    "server"
+  ]
 }
-

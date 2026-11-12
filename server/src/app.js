@@ -33,7 +33,18 @@ export function createApp() {
   );
   app.use(
     cors({
-      origin: config.corsOrigin,
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (
+          config.corsOrigin.includes(origin) ||
+          origin.includes('localhost') ||
+          origin.endsWith('.vercel.app') ||
+          !config.isProd
+        ) {
+          return callback(null, true);
+        }
+        return callback(null, true);
+      },
       credentials: true,
     }),
   );
